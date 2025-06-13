@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   LineChart,
   PieChart,
@@ -17,6 +17,9 @@ import {
 } from "lucide-react"
 import { useLanguage } from "@/contexts/language-context"
 import { getTranslations } from "@/lib/i18n"
+import { supabase } from "@/lib/supabaseClient"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
 
 export default function ReportsPage() {
   const { language } = useLanguage()
@@ -24,6 +27,11 @@ export default function ReportsPage() {
 
   const [dateRange, setDateRange] = useState("last30")
   const [isLoading, setIsLoading] = useState(false)
+  const [startDate, setStartDate] = useState<string>("")
+  const [endDate, setEndDate] = useState<string>("")
+  const [status, setStatus] = useState<string>("")
+  const [reports, setReports] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   const refreshData = () => {
     setIsLoading(true)
@@ -31,6 +39,84 @@ export default function ReportsPage() {
     setTimeout(() => {
       setIsLoading(false)
     }, 1000)
+  }
+
+  useEffect(() => {
+    fetchReports()
+  }, [startDate, endDate, status])
+
+  async function fetchReports() {
+    try {
+      setLoading(true)
+      let query = supabase
+        .from("reservas")
+        .select(`
+          *,
+          motoristas (nome),
+          veiculos (modelo, placa)
+        `)
+
+      if (startDate) {
+        query = query.gte("data de retirada", startDate)
+      }
+      if (endDate) {
+        query = query.lte("data de retirada", endDate)
+      }
+      if (status) {
+        query = query.eq("status", status)
+      }
+
+      const { data, error } = await query
+
+      if (error) throw error
+      setReports(data || [])
+    } catch (error) {
+      console.error("Erro ao buscar relatórios:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function exportToCSV() {
+    const headers = [
+      "ID",
+      "Cliente",
+      "Data Retirada",
+      "Hora Retirada",
+      "Origem",
+      "Destino",
+      "Motorista",
+      "Veículo",
+      "Status",
+      "Valor Total"
+    ]
+
+    const csvData = reports.map(report => [
+      report.id,
+      report.cliente,
+      format(new Date(report["data de retirada"]), "dd/MM/yyyy"),
+      report["hora de retirada"],
+      report["local de retirada"],
+      report["local de entrega"],
+      report.motoristas?.nome || "N/A",
+      `${report.veiculos?.modelo} (${report.veiculos?.placa})`,
+      report.status,
+      report.montante_total
+    ])
+
+    const csvContent = [
+      headers.join(","),
+      ...csvData.map(row => row.join(","))
+    ].join("\n")
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", `relatorio_${format(new Date(), "yyyy-MM-dd")}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   return (
@@ -304,77 +390,94 @@ export default function ReportsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {[
-                {
-                  id: "BK-7829",
-                  client: "João Almeida",
-                  from: "Aeroporto de Lisboa",
-                  to: "Hotel Tivoli",
-                  date: "24/03/2023",
-                  amount: "R$ 180",
-                  status: t.reports.completed,
-                },
-                {
-                  id: "BK-7830",
-                  client: "Maria Santos",
-                  from: "Hotel Marriott",
-                  to: "Aeroporto do Porto",
-                  date: "24/03/2023",
-                  amount: "R$ 210",
-                  status: t.reports.completed,
-                },
-                {
-                  id: "BK-7831",
-                  client: "Pedro Costa",
-                  from: "Aeroporto de Faro",
-                  to: "Resort Pine Cliffs",
-                  date: "25/03/2023",
-                  amount: "R$ 250",
-                  status: t.reports.inProgress,
-                },
-                {
-                  id: "BK-7832",
-                  client: "Sofia Martins",
-                  from: "Hotel Altis",
-                  to: "Aeroporto de Lisboa",
-                  date: "25/03/2023",
-                  amount: "R$ 175",
-                  status: t.reports.scheduled,
-                },
-                {
-                  id: "BK-7833",
-                  client: "Ricardo Ferreira",
-                  from: "Aeroporto do Porto",
-                  to: "Hotel Infante Sagres",
-                  date: "26/03/2023",
-                  amount: "R$ 195",
-                  status: t.reports.scheduled,
-                },
-              ].map((booking, index) => (
-                <tr key={index} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-medium text-primary">{booking.id}</td>
-                  <td className="px-4 py-3 text-sm text-gray-800">{booking.client}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{booking.from}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{booking.to}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{booking.date}</td>
-                  <td className="px-4 py-3 text-sm text-gray-800">{booking.amount}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        booking.status === t.reports.completed
-                          ? "bg-green-100 text-green-800"
-                          : booking.status === t.reports.inProgress
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-amber-100 text-amber-800"
-                      }`}
-                    >
-                      {booking.status}
-                    </span>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-4 text-center">
+                    Carregando...
                   </td>
                 </tr>
-              ))}
+              ) : reports.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-4 text-center">
+                    Nenhum relatório encontrado
+                  </td>
+                </tr>
+              ) : (
+                reports.map((report) => (
+                  <tr key={report.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm font-medium text-primary">{report.id}</td>
+                    <td className="px-4 py-3 text-sm text-gray-800">{report.cliente}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{report["local de retirada"]}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{report["local de entrega"]}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {format(new Date(report["data de retirada"]), "dd/MM/yyyy")}
+                      <br />
+                      <span className="text-sm text-gray-500">
+                        {report["hora de retirada"]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-800">R$ {report.montante_total}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          report.status === "confirmado" ? "bg-green-100 text-green-800" :
+                          report.status === "pendente" ? "bg-yellow-100 text-yellow-800" :
+                          report.status === "concluido" ? "bg-blue-100 text-blue-800" :
+                          "bg-red-100 text-red-800"
+                        }`}
+                      >
+                        {report.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div>
+          <label className="block text-sm font-medium mb-1">Data Inicial</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="w-full p-2 border rounded"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Data Final</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="w-full p-2 border rounded"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Status</label>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="w-full p-2 border rounded"
+          >
+            <option value="">Todos</option>
+            <option value="pendente">Pendente</option>
+            <option value="confirmado">Confirmado</option>
+            <option value="concluido">Concluído</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div className="flex items-end">
+          <button
+            onClick={exportToCSV}
+            className="btn-primary bg-secondary text-white px-4 py-2 rounded hover:bg-secondary/90"
+          >
+            Exportar CSV
+          </button>
         </div>
       </div>
     </div>

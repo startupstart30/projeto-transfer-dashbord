@@ -5,6 +5,7 @@ import { useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { LanguageProvider } from "@/contexts/language-context"
 import AdminDashboard from "@/components/admin-dashboard"
+import { BarChart } from "lucide-react"
 
 export default function AdminLayout({
   children,
@@ -80,7 +81,21 @@ export default function AdminLayout({
 
   return (
     <LanguageProvider>
-      <AdminDashboard>{children}</AdminDashboard>
+      <AdminDashboard>
+        {children}
+        <div className="mt-6">
+          <h2 className="text-2xl font-bold mb-4">Menu</h2>
+          <nav className="space-y-2">
+            <a
+              href="/admin/reports"
+              className="flex items-center p-2 text-sm font-medium text-gray-900 rounded-lg hover:bg-gray-100"
+            >
+              <BarChart className="w-6 h-6 text-gray-500" />
+              <span className="ml-3">Relatórios</span>
+            </a>
+          </nav>
+        </div>
+      </AdminDashboard>
     </LanguageProvider>
   )
 }
