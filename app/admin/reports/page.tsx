@@ -20,6 +20,20 @@ import { getTranslations } from "@/lib/i18n"
 import { supabase } from "@/lib/supabaseClient"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Pie,
+  Cell
+} from "recharts"
+
+const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"]
 
 export default function ReportsPage() {
   const { language } = useLanguage()
@@ -32,6 +46,8 @@ export default function ReportsPage() {
   const [status, setStatus] = useState<string>("")
   const [reports, setReports] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [reportType, setReportType] = useState<"reservas" | "financeiro" | "motoristas" | "veiculos">("reservas")
+  const [chartData, setChartData] = useState<any[]>([])
 
   const refreshData = () => {
     setIsLoading(true)
@@ -43,18 +59,39 @@ export default function ReportsPage() {
 
   useEffect(() => {
     fetchReports()
-  }, [startDate, endDate, status])
+  }, [startDate, endDate, status, reportType])
 
   async function fetchReports() {
     try {
       setLoading(true)
-      let query = supabase
-        .from("reservas")
-        .select(`
-          *,
-          motoristas (nome),
-          veiculos (modelo, placa)
-        `)
+      let query
+
+      switch (reportType) {
+        case "reservas":
+          query = supabase
+            .from("reservas")
+            .select(`
+              *,
+              motoristas (nome),
+              veiculos (modelo, placa)
+            `)
+          break
+        case "financeiro":
+          query = supabase
+            .from("reservas")
+            .select("montante_total, status, data de retirada")
+          break
+        case "motoristas":
+          query = supabase
+            .from("motoristas")
+            .select("nome, status")
+          break
+        case "veiculos":
+          query = supabase
+            .from("veiculos")
+            .select("modelo, placa, status")
+          break
+      }
 
       if (startDate) {
         query = query.gte("data de retirada", startDate)
@@ -70,6 +107,36 @@ export default function ReportsPage() {
 
       if (error) throw error
       setReports(data || [])
+
+      // Preparar dados para os gráficos
+      if (reportType === "financeiro") {
+        const monthlyData = data?.reduce((acc: any, curr: any) => {
+          const month = format(new Date(curr["data de retirada"]), "MMM/yyyy")
+          if (!acc[month]) {
+            acc[month] = 0
+          }
+          acc[month] += curr.montante_total
+          return acc
+        }, {})
+
+        setChartData(Object.entries(monthlyData).map(([month, total]) => ({
+          month,
+          total
+        })))
+      } else if (reportType === "reservas") {
+        const statusData = data?.reduce((acc: any, curr: any) => {
+          if (!acc[curr.status]) {
+            acc[curr.status] = 0
+          }
+          acc[curr.status]++
+          return acc
+        }, {})
+
+        setChartData(Object.entries(statusData).map(([status, count]) => ({
+          status,
+          count
+        })))
+      }
     } catch (error) {
       console.error("Erro ao buscar relatórios:", error)
     } finally {
@@ -78,34 +145,72 @@ export default function ReportsPage() {
   }
 
   function exportToCSV() {
-    const headers = [
-      "ID",
-      "Cliente",
-      "Data Retirada",
-      "Hora Retirada",
-      "Origem",
-      "Destino",
-      "Motorista",
-      "Veículo",
-      "Status",
-      "Valor Total"
-    ]
+    const headers = {
+      reservas: [
+        "ID",
+        "Cliente",
+        "Data Retirada",
+        "Hora Retirada",
+        "Origem",
+        "Destino",
+        "Motorista",
+        "Veículo",
+        "Status",
+        "Valor Total"
+      ],
+      financeiro: [
+        "Data",
+        "Status",
+        "Valor Total"
+      ],
+      motoristas: [
+        "Nome",
+        "Status"
+      ],
+      veiculos: [
+        "Modelo",
+        "Placa",
+        "Status"
+      ]
+    }
 
-    const csvData = reports.map(report => [
-      report.id,
-      report.cliente,
-      format(new Date(report["data de retirada"]), "dd/MM/yyyy"),
-      report["hora de retirada"],
-      report["local de retirada"],
-      report["local de entrega"],
-      report.motoristas?.nome || "N/A",
-      `${report.veiculos?.modelo} (${report.veiculos?.placa})`,
-      report.status,
-      report.montante_total
-    ])
+    const csvData = reports.map(report => {
+      switch (reportType) {
+        case "reservas":
+          return [
+            report.id,
+            report.cliente,
+            format(new Date(report["data de retirada"]), "dd/MM/yyyy"),
+            report["hora de retirada"],
+            report["local de retirada"],
+            report["local de entrega"],
+            report.motoristas?.nome || "N/A",
+            `${report.veiculos?.modelo} (${report.veiculos?.placa})`,
+            report.status,
+            report.montante_total
+          ]
+        case "financeiro":
+          return [
+            format(new Date(report["data de retirada"]), "dd/MM/yyyy"),
+            report.status,
+            report.montante_total
+          ]
+        case "motoristas":
+          return [
+            report.nome,
+            report.status
+          ]
+        case "veiculos":
+          return [
+            report.modelo,
+            report.placa,
+            report.status
+          ]
+      }
+    })
 
     const csvContent = [
-      headers.join(","),
+      headers[reportType].join(","),
       ...csvData.map(row => row.join(","))
     ].join("\n")
 
@@ -113,7 +218,7 @@ export default function ReportsPage() {
     const link = document.createElement("a")
     const url = URL.createObjectURL(blob)
     link.setAttribute("href", url)
-    link.setAttribute("download", `relatorio_${format(new Date(), "yyyy-MM-dd")}.csv`)
+    link.setAttribute("download", `relatorio_${reportType}_${format(new Date(), "yyyy-MM-dd")}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -440,6 +545,19 @@ export default function ReportsPage() {
       {/* Filtros */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div>
+          <label className="block text-sm font-medium mb-1">Tipo de Relatório</label>
+          <select
+            value={reportType}
+            onChange={(e) => setReportType(e.target.value as any)}
+            className="w-full p-2 border rounded"
+          >
+            <option value="reservas">Reservas</option>
+            <option value="financeiro">Financeiro</option>
+            <option value="motoristas">Motoristas</option>
+            <option value="veiculos">Veículos</option>
+          </select>
+        </div>
+        <div>
           <label className="block text-sm font-medium mb-1">Data Inicial</label>
           <input
             type="date"
@@ -478,6 +596,240 @@ export default function ReportsPage() {
           >
             Exportar CSV
           </button>
+        </div>
+      </div>
+
+      {/* Gráficos */}
+      {!loading && chartData.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold mb-4">Visualização Gráfica</h2>
+          <div className="h-[400px]">
+            <ResponsiveContainer width="100%" height="100%">
+              {reportType === "financeiro" ? (
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="total" fill="#8884d8" name="Valor Total (R$)" />
+                </BarChart>
+              ) : (
+                <PieChart>
+                  <Pie
+                    data={chartData}
+                    dataKey="count"
+                    nameKey="status"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={150}
+                    label
+                  >
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Tabela de Relatórios */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                {reportType === "reservas" && (
+                  <>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Cliente
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Data/Hora
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Origem/Destino
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Motorista
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Veículo
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Valor
+                    </th>
+                  </>
+                )}
+                {reportType === "financeiro" && (
+                  <>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Data
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Valor
+                    </th>
+                  </>
+                )}
+                {reportType === "motoristas" && (
+                  <>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Nome
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                  </>
+                )}
+                {reportType === "veiculos" && (
+                  <>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Modelo
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Placa
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-4 text-center">
+                    Carregando...
+                  </td>
+                </tr>
+              ) : reports.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-4 text-center">
+                    Nenhum relatório encontrado
+                  </td>
+                </tr>
+              ) : (
+                reports.map((report) => (
+                  <tr key={report.id} className="hover:bg-gray-50">
+                    {reportType === "reservas" && (
+                      <>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {report.cliente}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {format(new Date(report["data de retirada"]), "dd/MM/yyyy")}
+                          <br />
+                          <span className="text-sm text-gray-500">
+                            {report["hora de retirada"]}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm">
+                            <div className="font-medium">{report["local de retirada"]}</div>
+                            <div className="text-gray-500">{report["local de entrega"]}</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {report.motoristas?.nome || "N/A"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {report.veiculos ? (
+                            <>
+                              {report.veiculos.modelo}
+                              <br />
+                              <span className="text-sm text-gray-500">
+                                {report.veiculos.placa}
+                              </span>
+                            </>
+                          ) : (
+                            "N/A"
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            report.status === "confirmado" ? "bg-green-100 text-green-800" :
+                            report.status === "pendente" ? "bg-yellow-100 text-yellow-800" :
+                            report.status === "concluido" ? "bg-blue-100 text-blue-800" :
+                            "bg-red-100 text-red-800"
+                          }`}>
+                            {report.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          R$ {report.montante_total}
+                        </td>
+                      </>
+                    )}
+                    {reportType === "financeiro" && (
+                      <>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {format(new Date(report["data de retirada"]), "dd/MM/yyyy")}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            report.status === "confirmado" ? "bg-green-100 text-green-800" :
+                            report.status === "pendente" ? "bg-yellow-100 text-yellow-800" :
+                            report.status === "concluido" ? "bg-blue-100 text-blue-800" :
+                            "bg-red-100 text-red-800"
+                          }`}>
+                            {report.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          R$ {report.montante_total}
+                        </td>
+                      </>
+                    )}
+                    {reportType === "motoristas" && (
+                      <>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {report.nome}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            report.status === "ativo" ? "bg-green-100 text-green-800" :
+                            "bg-red-100 text-red-800"
+                          }`}>
+                            {report.status}
+                          </span>
+                        </td>
+                      </>
+                    )}
+                    {reportType === "veiculos" && (
+                      <>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {report.modelo}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {report.placa}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            report.status === "ativo" ? "bg-green-100 text-green-800" :
+                            "bg-red-100 text-red-800"
+                          }`}>
+                            {report.status}
+                          </span>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

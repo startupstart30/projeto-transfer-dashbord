@@ -6,6 +6,8 @@ import { useRouter, usePathname } from "next/navigation"
 import { LanguageProvider } from "@/contexts/language-context"
 import AdminDashboard from "@/components/admin-dashboard"
 import { BarChart } from "lucide-react"
+import Link from "next/link"
+import { cn } from "@/lib/utils"
 
 export default function AdminLayout({
   children,
@@ -93,6 +95,46 @@ export default function AdminLayout({
               <BarChart className="w-6 h-6 text-gray-500" />
               <span className="ml-3">Relatórios</span>
             </a>
+            <Link
+              href="/admin/reports/financial"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-gray-500 transition-all hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-50",
+                pathname === "/admin/reports/financial" && "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-50"
+              )}
+            >
+              <BarChart className="h-4 w-4" />
+              Relatórios Financeiros
+            </Link>
+            <Link
+              href="/admin/reports/drivers"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-gray-500 transition-all hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-50",
+                pathname === "/admin/reports/drivers" && "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-50"
+              )}
+            >
+              <BarChart className="h-4 w-4" />
+              Relatório Motoristas
+            </Link>
+            <Link
+              href="/admin/reports/vehicles"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-gray-500 transition-all hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-50",
+                pathname === "/admin/reports/vehicles" && "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-50"
+              )}
+            >
+              <BarChart className="h-4 w-4" />
+              Relatório Veículos
+            </Link>
+            <Link
+              href="/admin/reports/custom"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-gray-500 transition-all hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-50",
+                pathname === "/admin/reports/custom" && "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-50"
+              )}
+            >
+              <BarChart className="h-4 w-4" />
+              Relatório Customizado
+            </Link>
           </nav>
         </div>
       </AdminDashboard>
