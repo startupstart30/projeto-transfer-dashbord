@@ -18,6 +18,11 @@ import {
 } from "lucide-react"
 import { supabase } from "@/lib/supabaseClient"
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay } from "date-fns"
+import { Bar } from "react-chartjs-2"
+import { Chart, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from "chart.js"
+import type { ChartData, ChartOptions } from 'chart.js'
+
+Chart.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 
 // Definir tipos para bookings
 interface RecentBooking {
@@ -48,6 +53,29 @@ interface Stats {
   bookingsByStatus: Record<string, number>
 }
 
+interface RevenueData {
+  month: string
+  value: number
+}
+
+interface OccupancyData {
+  date: string
+  value: number
+}
+
+interface Booking {
+  id: string;
+  status: string;
+  total_amount: number;
+  payment_status: string;
+  pickup_date: string;
+}
+
+interface Vehicle {
+  id: string;
+  status: string;
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats>({
     totalBookings: 0,
@@ -61,39 +89,65 @@ export default function AdminDashboard() {
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'))
   const [calendarBookings, setCalendarBookings] = useState<Record<string, any[]>>({})
   const [alerts, setAlerts] = useState<string[]>([])
+  const [occupancyData, setOccupancyData] = useState<OccupancyData[]>([])
+  const [revenueData, setRevenueData] = useState<RevenueData[]>([])
+  const [maintenanceCount, setMaintenanceCount] = useState(0)
 
   useEffect(() => {
     async function fetchStats() {
       setIsLoading(true)
       // Total de reservas
       const { count: totalBookings } = await supabase
-        .from("reservas")
-        .select("eu ia", { count: "exact", head: true })
+        .from("bookings")
+        .select("id", { count: "exact", head: true })
       // Total de motoristas
       const { count: totalDrivers } = await supabase
-        .from("motoristas")
-        .select("eu ia", { count: "exact", head: true })
+        .from("drivers")
+        .select("id", { count: "exact", head: true })
       // Total de veículos
       const { count: totalVehicles } = await supabase
-        .from("veículos")
-        .select("eu ia", { count: "exact", head: true })
+        .from("vehicles")
+        .select("id", { count: "exact", head: true })
+      // Veículos em manutenção
+      const { count: maintenance } = await supabase
+        .from("vehicles")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "maintenance")
+      setMaintenanceCount(maintenance || 0)
       // Receita total (somente reservas pagas)
-      const { data: reservasPagas } = await supabase
-        .from("reservas")
-        .select("montante_total, status_de_pagamento")
-      const totalRevenue = (reservasPagas || [])
-        .filter(r => r.status_de_pagamento === "pago")
-        .reduce((acc, r) => acc + Number(r.montante_total || 0), 0)
+      const { data: paidBookings } = await supabase
+        .from("bookings")
+        .select("total_amount, payment_status, pickup_date")
+      const totalRevenue = (paidBookings as Booking[] || [])
+        .filter((r: Booking) => r.payment_status === "paid")
+        .reduce((acc: number, r: Booking) => acc + Number(r.total_amount || 0), 0)
+      // Receita por mês (últimos 6 meses)
+      const revenueByMonth: Record<string, number> = {}
+      (paidBookings as Booking[] || []).forEach((r: Booking) => {
+        if (r.payment_status === "paid" && r.pickup_date) {
+          const month = r.pickup_date.slice(0, 7) // yyyy-MM
+          revenueByMonth[month] = (revenueByMonth[month] || 0) + Number(r.total_amount || 0)
+        }
+      })
+      setRevenueData(Object.entries(revenueByMonth).map(([month, value]) => ({ month, value })))
       // Reservas por status
       const { data: allBookings } = await supabase
-        .from("reservas")
+        .from("bookings")
         .select("status")
       const bookingsByStatus: Record<string, number> = {}
       if (allBookings) {
-        allBookings.forEach(b => {
+        (allBookings as Booking[]).forEach((b: Booking) => {
           bookingsByStatus[b.status] = (bookingsByStatus[b.status] || 0) + 1
         })
       }
+      // Ocupação por dia (últimos 30 dias)
+      const occupancy: Record<string, number> = {}
+      (paidBookings as Booking[] || []).forEach((r: Booking) => {
+        if (r.pickup_date) {
+          occupancy[r.pickup_date] = (occupancy[r.pickup_date] || 0) + 1
+        }
+      })
+      setOccupancyData(Object.entries(occupancy).map(([date, value]) => ({ date, value })))
       setStats({
         totalBookings: totalBookings || 0,
         totalDrivers: totalDrivers || 0,
@@ -218,6 +272,38 @@ export default function AdminDashboard() {
     )
   }
 
+  // Gráfico de receita por mês
+  const revenueChartData: ChartData<'bar'> = {
+    labels: revenueData.map(d => d.month),
+    datasets: [
+      {
+        label: "Receita (R$)",
+        data: revenueData.map(d => d.value),
+        backgroundColor: "#E95440",
+      },
+    ],
+  }
+  // Gráfico de ocupação
+  const occupancyChartData: ChartData<'bar'> = {
+    labels: occupancyData.map(d => d.date),
+    datasets: [
+      {
+        label: "Reservas por dia",
+        data: occupancyData.map(d => d.value),
+        backgroundColor: "#3B82F6",
+      },
+    ],
+  }
+
+  const chartOptions: ChartOptions<'bar'> = {
+    responsive: true,
+    plugins: {
+      legend: {
+        display: false
+      }
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -239,105 +325,58 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="bg-background-white rounded border border-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-text-gray text-sm font-medium">Total Bookings</h3>
-            <div className="bg-blue-100 p-2 rounded">
-              <Calendar className="h-5 w-5 text-info" />
-            </div>
-          </div>
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-2xl font-bold">{stats.totalBookings}</p>
-              <p className="text-sm text-success flex items-center">
-                <TrendingUp className="h-4 w-4 mr-1" />
-                <span>+12% from last month</span>
-              </p>
-            </div>
-          </div>
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="bg-white rounded-lg shadow p-6 flex flex-col items-center">
+          <Car className="w-8 h-8 text-blue-500 mb-2" />
+          <div className="text-2xl font-bold">{stats.totalVehicles}</div>
+          <div className="text-gray-500">Veículos</div>
+          <div className="text-xs text-yellow-600 mt-2">{maintenanceCount} em manutenção</div>
         </div>
-
-        <div className="bg-background-white rounded border border-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-text-gray text-sm font-medium">Active Vehicles</h3>
-            <div className="bg-green-100 p-2 rounded">
-              <Car className="h-5 w-5 text-success" />
-            </div>
-          </div>
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-2xl font-bold">{stats.totalVehicles}</p>
-              <p className="text-sm text-success flex items-center">
-                <TrendingUp className="h-4 w-4 mr-1" />
-                <span>+2 new vehicles</span>
-              </p>
-            </div>
-          </div>
+        <div className="bg-white rounded-lg shadow p-6 flex flex-col items-center">
+          <Users className="w-8 h-8 text-green-500 mb-2" />
+          <div className="text-2xl font-bold">{stats.totalDrivers}</div>
+          <div className="text-gray-500">Motoristas</div>
         </div>
-
-        <div className="bg-background-white rounded border border-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-text-gray text-sm font-medium">Active Drivers</h3>
-            <div className="bg-purple-100 p-2 rounded">
-              <Users className="h-5 w-5 text-purple-600" />
-            </div>
-          </div>
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-2xl font-bold">{stats.totalDrivers}</p>
-              <p className="text-sm text-danger flex items-center">
-                <TrendingDown className="h-4 w-4 mr-1" />
-                <span>-1 from last month</span>
-              </p>
-            </div>
-          </div>
+        <div className="bg-white rounded-lg shadow p-6 flex flex-col items-center">
+          <Calendar className="w-8 h-8 text-indigo-500 mb-2" />
+          <div className="text-2xl font-bold">{stats.totalBookings}</div>
+          <div className="text-gray-500">Reservas</div>
         </div>
-
-        <div className="bg-background-white rounded border border-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-text-gray text-sm font-medium">Total Revenue</h3>
-            <div className="bg-yellow-100 p-2 rounded">
-              <DollarSign className="h-5 w-5 text-warning" />
-            </div>
-          </div>
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-2xl font-bold">${stats.totalRevenue.toLocaleString()}</p>
-              <p className="text-sm text-success flex items-center">
-                <TrendingUp className="h-4 w-4 mr-1" />
-                <span>+8.2% from last month</span>
-              </p>
-            </div>
-          </div>
+        <div className="bg-white rounded-lg shadow p-6 flex flex-col items-center">
+          <DollarSign className="w-8 h-8 text-orange-500 mb-2" />
+          <div className="text-2xl font-bold">R$ {stats.totalRevenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div>
+          <div className="text-gray-500">Receita total</div>
         </div>
       </div>
 
-      {/* Calendar Section */}
-      <div className="bg-background-white rounded border border-border p-6 mb-8">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-medium font-dm-sans">Calendar</h2>
-          <div className="flex space-x-2">
-            <button className="px-3 py-1 text-sm bg-secondary text-white rounded">Day</button>
-            <button className="px-3 py-1 text-sm bg-background-light text-text-gray rounded">Week</button>
-            <button className="px-3 py-1 text-sm bg-background-light text-text-gray rounded">Month</button>
-          </div>
+      {/* Alertas */}
+      {alerts.length > 0 && (
+        <div className="mb-6">
+          {alerts.map((alert, idx) => (
+            <div key={idx} className="flex items-center gap-2 bg-yellow-100 text-yellow-800 rounded p-3 mb-2">
+              <AlertCircle className="w-5 h-5" /> {alert}
+            </div>
+          ))}
         </div>
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-dm-sans">Friday, January 18, 2025</h3>
-          <div className="flex items-center space-x-2">
-            <button className="p-1 rounded hover:bg-background-light">
-              <ChevronLeft className="h-5 w-5 text-text-gray" />
-            </button>
-            <button className="p-1 rounded hover:bg-background-light">
-              <ChevronRight className="h-5 w-5 text-text-gray" />
-            </button>
-          </div>
+      )}
+
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-bold mb-4">Receita por mês</h2>
+          <Bar data={revenueChartData} options={chartOptions} height={220} />
         </div>
-        <div className="border border-border rounded p-4 bg-white">
-          {renderCalendar()}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-bold mb-4">Ocupação diária</h2>
+          <Bar data={occupancyChartData} options={chartOptions} height={220} />
         </div>
+      </div>
+
+      {/* Calendário */}
+      <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <h2 className="text-lg font-bold mb-4">Calendário de Reservas</h2>
+        {renderCalendar()}
       </div>
 
       {/* Recent Bookings & Upcoming Bookings */}
@@ -403,23 +442,6 @@ export default function AdminDashboard() {
             </Link>
           </div>
         </div>
-      </div>
-
-      {/* Alerts */}
-      <div className="bg-background-white rounded border border-border p-6 mb-8">
-        <h2 className="text-lg font-medium font-dm-sans mb-4">Alertas & Notificações</h2>
-        {alerts.length === 0 ? (
-          <div className="text-sm text-gray-500">Nenhum alerta no momento.</div>
-        ) : (
-          <ul className="space-y-2">
-            {alerts.map((alert, idx) => (
-              <li key={idx} className="flex items-center text-sm text-danger">
-                <AlertCircle className="h-4 w-4 mr-2 text-danger" />
-                {alert}
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
     </div>
   )
