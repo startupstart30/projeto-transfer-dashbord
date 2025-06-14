@@ -1,400 +1,231 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { supabase } from "@/lib/supabaseClient"
 import Link from "next/link"
 import Image from "next/image"
 import { Plus, Search, Edit, Trash2, ChevronLeft, ChevronRight, Filter, Download } from "lucide-react"
+import * as XLSX from "xlsx"
 
-// Mock data for vehicles
-const mockVehicles = [
-  {
-    id: "V001",
-    name: "Mercedes-Benz E-Class",
-    type: "Business Class",
-    licensePlate: "NY-1234",
-    status: "Active",
-    passengers: 3,
-    luggage: 2,
-    year: 2022,
-    image: "https://content.app-sources.com/s/98064488125095989/uploads/Images/mercedes-e-class-2598047.webp",
-  },
-  {
-    id: "V002",
-    name: "Mercedes-Benz S-Class",
-    type: "First Class",
-    licensePlate: "NY-5678",
-    status: "Active",
-    passengers: 3,
-    luggage: 3,
-    year: 2023,
-    image: "https://content.app-sources.com/s/98064488125095989/uploads/Images/mercedes-s-class-2598047.webp",
-  },
-  {
-    id: "V003",
-    name: "Mercedes-Benz V-Class",
-    type: "Business Van/SUV",
-    licensePlate: "NY-9012",
-    status: "Active",
-    passengers: 7,
-    luggage: 5,
-    year: 2022,
-    image: "https://content.app-sources.com/s/98064488125095989/uploads/Images/mercedes-v-class-2598047.webp",
-  },
-  {
-    id: "V004",
-    name: "BMW 5 Series",
-    type: "Business Class",
-    licensePlate: "NY-3456",
-    status: "Maintenance",
-    passengers: 3,
-    luggage: 2,
-    year: 2021,
-    image: "https://content.app-sources.com/s/98064488125095989/uploads/Images/bmw-5-series-2598047.webp",
-  },
-  {
-    id: "V005",
-    name: "Audi A8",
-    type: "First Class",
-    licensePlate: "NY-7890",
-    status: "Active",
-    passengers: 3,
-    luggage: 3,
-    year: 2022,
-    image: "https://content.app-sources.com/s/98064488125095989/uploads/Images/audi-a8-2598047.webp",
-  },
-  {
-    id: "V006",
-    name: "Chevrolet Suburban",
-    type: "Business Van/SUV",
-    licensePlate: "NY-1357",
-    status: "Active",
-    passengers: 7,
-    luggage: 6,
-    year: 2021,
-    image: "https://content.app-sources.com/s/98064488125095989/uploads/Images/chevrolet-suburban-2598047.webp",
-  },
-  {
-    id: "V007",
-    name: "Cadillac XTS",
-    type: "Business Class",
-    licensePlate: "NY-2468",
-    status: "Inactive",
-    passengers: 3,
-    luggage: 2,
-    year: 2020,
-    image: "https://content.app-sources.com/s/98064488125095989/uploads/Images/cadillac-xts-2598047.webp",
-  },
-  {
-    id: "V008",
-    name: "BMW 7 Series",
-    type: "First Class",
-    licensePlate: "NY-3690",
-    status: "Active",
-    passengers: 3,
-    luggage: 3,
-    year: 2022,
-    image: "https://content.app-sources.com/s/98064488125095989/uploads/Images/bmw-7-series-2598047.webp",
-  },
+const STATUS_OPTIONS = [
+  { value: "", label: "Todos" },
+  { value: "active", label: "Ativo" },
+  { value: "maintenance", label: "Manutenção" },
+  { value: "inactive", label: "Inativo" }
 ]
+const VEHICLE_TYPES = ["Business Class", "First Class", "Business Van/SUV"]
 
 export default function VehiclesPage() {
-  const [vehicles, setVehicles] = useState(mockVehicles)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [showAddModal, setShowAddModal] = useState(false)
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null)
+  const [vehicles, setVehicles] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState("")
+  const [type, setType] = useState("")
+  const [year, setYear] = useState("")
+  const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(6)
+  const itemsPerPage = 8
+  const [exportLoading, setExportLoading] = useState(false)
+  const [exportSuccess, setExportSuccess] = useState("")
 
-  // Filter vehicles based on search term
-  const filteredVehicles = vehicles.filter(
-    (vehicle) =>
-      vehicle.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      vehicle.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      vehicle.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  useEffect(() => {
+    fetchVehicles()
+  }, [status, type, year, search])
 
-  // Pagination
-  const indexOfLastItem = currentPage * itemsPerPage
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage
-  const currentVehicles = filteredVehicles.slice(indexOfFirstItem, indexOfLastItem)
-  const totalPages = Math.ceil(filteredVehicles.length / itemsPerPage)
-
-  const handlePageChange = (pageNumber: number) => {
-    setCurrentPage(pageNumber)
+  async function fetchVehicles() {
+    setLoading(true)
+    setError(null)
+    let query = supabase.from("vehicles").select("*")
+    if (status) query = query.eq("status", status)
+    if (type) query = query.eq("type", type)
+    if (year) query = query.eq("year", year)
+    if (search) query = query.or(`name.ilike.%${search}%,license_plate.ilike.%${search}%,type.ilike.%${search}%`)
+    const { data, error } = await query.order("name", { ascending: true })
+    if (error) setError(error.message)
+    setVehicles(data || [])
+    setLoading(false)
   }
 
-  const handleDeleteClick = (id: string) => {
-    setSelectedVehicle(id)
-    setShowDeleteModal(true)
-  }
-
-  const confirmDelete = () => {
-    if (selectedVehicle) {
-      setVehicles(vehicles.filter((vehicle) => vehicle.id !== selectedVehicle))
-      setShowDeleteModal(false)
-      setSelectedVehicle(null)
+  async function handleDelete(id: string) {
+    if (!confirm('Tem certeza que deseja excluir este veículo? Esta ação não poderá ser desfeita.')) return;
+    setLoading(true);
+    const { error } = await supabase.from("vehicles").delete().eq("id", id);
+    if (error) {
+      setError(error.message);
+    } else {
+      setVehicles(vehicles => vehicles.filter(v => v.id !== id));
     }
+    setLoading(false);
+  }
+
+  // Paginação
+  const totalPages = Math.ceil(vehicles.length / itemsPerPage)
+  const paginatedVehicles = vehicles.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+
+  function exportToCSV() {
+    setExportLoading(true)
+    setExportSuccess("")
+    const headers = ["Nome/Modelo", "Tipo", "Ano", "Placa", "Passageiros", "Bagagem", "Status"]
+    const csvContent = [
+      headers.join(","),
+      ...vehicles.map(row => [
+        row.name,
+        row.type,
+        row.year,
+        row.license_plate,
+        row.passengers,
+        row.luggage,
+        STATUS_OPTIONS.find(opt => opt.value === row.status)?.label || row.status
+      ].join(","))
+    ].join("\n")
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    link.href = URL.createObjectURL(blob)
+    link.download = "veiculos.csv"
+    link.click()
+    setExportLoading(false)
+    setExportSuccess("Exportação CSV realizada com sucesso!")
+    setTimeout(() => setExportSuccess(""), 2000)
+  }
+
+  function exportToExcel() {
+    setExportLoading(true)
+    setExportSuccess("")
+    const worksheet = XLSX.utils.json_to_sheet(
+      vehicles.map(v => ({
+        "Nome/Modelo": v.name,
+        "Tipo": v.type,
+        "Ano": v.year,
+        "Placa": v.license_plate,
+        "Passageiros": v.passengers,
+        "Bagagem": v.luggage,
+        "Status": STATUS_OPTIONS.find(opt => opt.value === v.status)?.label || v.status
+      }))
+    )
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Veículos")
+    XLSX.writeFile(workbook, "veiculos.xlsx")
+    setExportLoading(false)
+    setExportSuccess("Exportação Excel realizada com sucesso!")
+    setTimeout(() => setExportSuccess(""), 2000)
   }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-medium">Vehicles</h1>
-        <button className="btn-primary bg-secondary flex items-center text-sm" onClick={() => setShowAddModal(true)}>
-          <Plus className="h-5 w-5 mr-2" />
-          Add Vehicle
-        </button>
-      </div>
-
-      {/* Filters and Search */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search vehicles..."
-              className="pl-10 pr-4 py-2 border rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-[#E95440] focus:border-transparent"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="flex items-center px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors">
-              <Filter className="h-4 w-4 mr-2 text-gray-500" />
-              Filter
-            </button>
-            <button className="flex items-center px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors">
-              <Download className="h-4 w-4 mr-2 text-gray-500" />
-              Export
-            </button>
-          </div>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Veículos</h1>
+      <div className="mb-4 flex flex-wrap gap-2 items-end">
+        <div>
+          <label className="block text-xs">Status</label>
+          <select className="border rounded px-2 py-1" value={status} onChange={e => setStatus(e.target.value)}>
+            {STATUS_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
+        <div>
+          <label className="block text-xs">Tipo</label>
+          <select className="border rounded px-2 py-1" value={type} onChange={e => setType(e.target.value)}>
+            <option value="">Todos</option>
+            {VEHICLE_TYPES.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs">Ano</label>
+          <input type="number" className="border rounded px-2 py-1" value={year} onChange={e => setYear(e.target.value)} placeholder="Todos" />
+        </div>
+        <div>
+          <label className="block text-xs">Buscar</label>
+          <input type="text" className="border rounded px-2 py-1" value={search} onChange={e => setSearch(e.target.value)} placeholder="Nome, placa, tipo..." />
+        </div>
+        <Link href="/admin/vehicles/new" className="ml-auto bg-primary text-white px-4 py-2 rounded hover:bg-primary/90">Novo Veículo</Link>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button type="button" className="bg-secondary text-black px-4 py-2 rounded hover:bg-secondary/80 disabled:opacity-60" onClick={exportToCSV} disabled={exportLoading}>
+            {exportLoading ? "Exportando..." : "Exportar CSV"}
+          </button>
+          <button type="button" className="bg-secondary text-black px-4 py-2 rounded hover:bg-secondary/80 disabled:opacity-60" onClick={exportToExcel} disabled={exportLoading}>
+            {exportLoading ? "Exportando..." : "Exportar Excel"}
+          </button>
+        </div>
+        {exportSuccess && <div className="text-green-600 text-xs ml-2">{exportSuccess}</div>}
       </div>
-
-      {/* Vehicles Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-        {currentVehicles.map((vehicle) => (
-          <div key={vehicle.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="relative h-48 bg-gray-100">
-              <Image src={vehicle.image || "/placeholder.svg"} alt={vehicle.name} fill className="object-contain p-4" />
-              <div
-                className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-medium ${
-                  vehicle.status === "Active"
-                    ? "bg-green-100 text-green-800"
-                    : vehicle.status === "Maintenance"
-                      ? "bg-yellow-100 text-yellow-800"
-                      : "bg-red-100 text-red-800"
-                }`}
-              >
-                {vehicle.status}
-              </div>
-            </div>
-            <div className="p-4">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h3 className="font-medium text-lg">{vehicle.name}</h3>
-                  <p className="text-sm text-gray-600">{vehicle.type}</p>
-                </div>
-                <div className="flex space-x-2">
-                  <Link href={`/admin/vehicles/edit/${vehicle.id}`}>
-                    <button className="p-1 hover:bg-gray-100 rounded-full transition-colors">
-                      <Edit className="h-4 w-4 text-gray-500" />
-                    </button>
-                  </Link>
-                  <button
-                    className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                    onClick={() => handleDeleteClick(vehicle.id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-gray-500" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex justify-between text-sm text-gray-600 mb-2">
-                <span>License: {vehicle.licensePlate}</span>
-                <span>Year: {vehicle.year}</span>
-              </div>
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>Passengers: {vehicle.passengers}</span>
-                <span>Luggage: {vehicle.luggage}</span>
-              </div>
-            </div>
-          </div>
-        ))}
+      <div className="border rounded overflow-x-auto">
+        {loading ? (
+          <div className="p-8 text-center text-muted-foreground">Carregando...</div>
+        ) : error ? (
+          <div className="p-8 text-center text-red-500">Erro: {error}</div>
+        ) : paginatedVehicles.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">Nenhum veículo encontrado.</div>
+        ) : (
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-muted">
+                <th className="p-2 text-left">Nome/Modelo</th>
+                <th className="p-2 text-left">Tipo</th>
+                <th className="p-2 text-left">Ano</th>
+                <th className="p-2 text-left">Placa</th>
+                <th className="p-2 text-left">Passageiros</th>
+                <th className="p-2 text-left">Bagagem</th>
+                <th className="p-2 text-left">Status</th>
+                <th className="p-2 text-left">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedVehicles.map(vehicle => (
+                <tr key={vehicle.id} className="border-t">
+                  <td className="p-2">{vehicle.name}</td>
+                  <td className="p-2">{vehicle.type}</td>
+                  <td className="p-2">{vehicle.year}</td>
+                  <td className="p-2">{vehicle.license_plate}</td>
+                  <td className="p-2">{vehicle.passengers}</td>
+                  <td className="p-2">{vehicle.luggage}</td>
+                  <td className="p-2 capitalize">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      vehicle.status === "active" ? "bg-green-100 text-green-800" :
+                      vehicle.status === "maintenance" ? "bg-yellow-100 text-yellow-800" :
+                      "bg-red-100 text-red-800"}`}>{
+                        STATUS_OPTIONS.find(opt => opt.value === vehicle.status)?.label || vehicle.status
+                    }</span>
+                  </td>
+                  <td className="p-2 flex gap-2">
+                    <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="text-blue-600 hover:underline">Editar</Link>
+                    <button className="text-red-600 hover:underline" onClick={() => handleDelete(vehicle.id)}>Excluir</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
-
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex justify-center mt-6">
           <nav className="flex items-center space-x-2">
             <button
-              onClick={() => handlePageChange(currentPage - 1)}
+              onClick={() => setCurrentPage(currentPage - 1)}
               disabled={currentPage === 1}
-              className={`p-2 rounded-md ${
-                currentPage === 1 ? "text-gray-400 cursor-not-allowed" : "text-gray-700 hover:bg-gray-100"
-              }`}
+              className={`p-2 rounded-md ${currentPage === 1 ? "text-gray-400 cursor-not-allowed" : "text-gray-700 hover:bg-gray-100"}`}
             >
-              <ChevronLeft className="h-5 w-5" />
+              &lt;
             </button>
-
             {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
               <button
                 key={page}
-                onClick={() => handlePageChange(page)}
-                className={`px-3 py-1 rounded-md ${
-                  currentPage === page ? "bg-[#E95440] text-white" : "text-gray-700 hover:bg-gray-100"
-                }`}
+                onClick={() => setCurrentPage(page)}
+                className={`px-3 py-1 rounded-md ${currentPage === page ? "bg-primary text-white" : "text-gray-700 hover:bg-gray-100"}`}
               >
                 {page}
               </button>
             ))}
-
             <button
-              onClick={() => handlePageChange(currentPage + 1)}
+              onClick={() => setCurrentPage(currentPage + 1)}
               disabled={currentPage === totalPages}
-              className={`p-2 rounded-md ${
-                currentPage === totalPages ? "text-gray-400 cursor-not-allowed" : "text-gray-700 hover:bg-gray-100"
-              }`}
+              className={`p-2 rounded-md ${currentPage === totalPages ? "text-gray-400 cursor-not-allowed" : "text-gray-700 hover:bg-gray-100"}`}
             >
-              <ChevronRight className="h-5 w-5" />
+              &gt;
             </button>
           </nav>
-        </div>
-      )}
-
-      {/* Add Vehicle Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl">
-            <div className="p-6 border-b">
-              <h2 className="text-xl font-semibold">Add New Vehicle</h2>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Vehicle Name</label>
-                  <input
-                    type="text"
-                    className="w-full p-2 border rounded-md"
-                    placeholder="e.g. Mercedes-Benz E-Class"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Vehicle Type</label>
-                  <select className="w-full p-2 border rounded-md">
-                    <option>Business Class</option>
-                    <option>First Class</option>
-                    <option>Business Van/SUV</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">License Plate</label>
-                  <input type="text" className="w-full p-2 border rounded-md" placeholder="e.g. NY-1234" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Year</label>
-                  <input type="number" className="w-full p-2 border rounded-md" placeholder="e.g. 2023" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Status</label>
-                  <select className="w-full p-2 border rounded-md">
-                    <option>Active</option>
-                    <option>Maintenance</option>
-                    <option>Inactive</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Passengers</label>
-                  <input type="number" className="w-full p-2 border rounded-md" placeholder="e.g. 3" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Luggage Capacity</label>
-                  <input type="number" className="w-full p-2 border rounded-md" placeholder="e.g. 2" />
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">Vehicle Image</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <div className="flex flex-col items-center">
-                    <svg
-                      className="mx-auto h-12 w-12 text-gray-400"
-                      stroke="currentColor"
-                      fill="none"
-                      viewBox="0 0 48 48"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    <div className="flex text-sm text-gray-600 mt-2">
-                      <label
-                        htmlFor="file-upload"
-                        className="relative cursor-pointer bg-white rounded-md font-medium text-[#E95440] hover:text-[#d64a36] focus-within:outline-none"
-                      >
-                        <span>Upload a file</span>
-                        <input id="file-upload" name="file-upload" type="file" className="sr-only" />
-                      </label>
-                      <p className="pl-1">or drag and drop</p>
-                    </div>
-                    <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="p-6 border-t flex justify-end space-x-4">
-              <button
-                className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors"
-                onClick={() => setShowAddModal(false)}
-              >
-                Cancel
-              </button>
-              <button className="px-4 py-2 bg-[#E95440] hover:bg-[#d64a36] text-white rounded-lg transition-colors">
-                Add Vehicle
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
-            <div className="p-6">
-              <h2 className="text-xl font-semibold mb-4">Confirm Deletion</h2>
-              <p className="text-gray-700 mb-6">
-                Are you sure you want to delete this vehicle? This action cannot be undone.
-              </p>
-              <div className="flex justify-end space-x-4">
-                <button
-                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors"
-                  onClick={() => setShowDeleteModal(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-                  onClick={confirmDelete}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>
