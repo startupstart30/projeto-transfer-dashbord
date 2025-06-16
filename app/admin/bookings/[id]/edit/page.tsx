@@ -33,7 +33,7 @@ export default function EditBookingPage() {
     extras: [] as { id: string; name: string; quantity: number; price: number }[],
   });
 
-  // Carregar dados da reserva
+  // Fase 3: Carregamento de dados - Busca dados iniciais do Supabase e popula os estados.
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -81,25 +81,26 @@ export default function EditBookingPage() {
     if (id) fetchData();
   }, [id]);
 
-  // Manipulação de campos
+  // Fase 4: Manipulação de formulário - Funções para atualizar estados e gerenciar interações do usuário.
   function handleChange(e: any) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  // Adicionar/remover extras
   function handleAddExtra() {
     setForm((prev) => ({
       ...prev,
       extras: [...prev.extras, { id: "", name: "", quantity: 1, price: 0 }],
     }));
   }
+
   function handleRemoveExtra(idx: number) {
     setForm((prev) => ({
       ...prev,
       extras: prev.extras.filter((_, i) => i !== idx),
     }));
   }
+
   function handleExtraChange(idx: number, field: string, value: any) {
     setForm((prev) => ({
       ...prev,
@@ -109,7 +110,7 @@ export default function EditBookingPage() {
     }));
   }
 
-  // Validação básica
+  // Fase 5: Validação e submissão - Valida os dados e envia atualizações para o Supabase.
   function validate() {
     if (!form.user_id || !form.pickup_location || !form.dropoff_location || !form.pickup_date || !form.pickup_time || !form.vehicle_id) {
       setError("Preencha todos os campos obrigatórios.");
@@ -122,7 +123,6 @@ export default function EditBookingPage() {
     return true;
   }
 
-  // Submissão
   async function handleSubmit(e: any) {
     e.preventDefault();
     setError("");
@@ -179,6 +179,7 @@ export default function EditBookingPage() {
     }, 1200);
   }
 
+  // Fase 6: Renderização condicional e UI - Exibe o formulário ou loaders com base nos estados.
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
